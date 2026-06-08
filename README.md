@@ -26,15 +26,17 @@ Isso sobe dois processos simultaneamente:
 - **Frontend:** http://localhost:5173
 - **Backend local:** http://localhost:3001
 
-## Modo IA local (opcional)
+## IA local (Ollama)
 
-Para interpretar PDFs com IA, instale o Ollama e baixe um modelo:
+O `npm run dev` já tenta iniciar o Ollama automaticamente. Se ele já estiver rodando, continua normalmente.
+
+Antes do primeiro uso, baixe o modelo:
 
 ```bash
 ollama pull qwen2.5:7b
 ```
 
-Com o Ollama rodando, marque a opção **"Usar IA local"** na interface antes de enviar o PDF.
+Na interface, marque **"Usar IA local"** antes de enviar o PDF.
 
 Modelos alternativos compatíveis: `llama3.1:8b`, `mistral:7b`.
 

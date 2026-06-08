@@ -4,9 +4,10 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "concurrently \"npm run dev:web\" \"npm run dev:server\"",
+    "dev": "concurrently \"npm run dev:web\" \"npm run dev:server\" \"npm run dev:ollama\"",
     "dev:web": "vite",
     "dev:server": "tsx src/server/index.ts",
+    "dev:ollama": "ollama serve || echo 'Ollama já está em execução'",
     "server": "tsx src/server/index.ts",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
