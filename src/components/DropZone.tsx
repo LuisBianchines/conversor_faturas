@@ -1,6 +1,5 @@
 import { useRef, useState } from 'react'
 import { parseOFX } from '../lib/parseOFX'
-import { parsePDF } from '../lib/parsePDF'
 import type { ParsedInvoice } from '../shared/invoice.types'
 import type { ConvertApiResponse } from '../shared/api.types'
 
@@ -49,7 +48,6 @@ async function convertPdfWithLocalAI(file: File): Promise<ParsedInvoice> {
 export default function DropZone({ onInvoiceParsed, onError }: DropZoneProps) {
   const [isDragging, setIsDragging] = useState(false)
   const [selectedFileName, setSelectedFileName] = useState<string>('')
-  const [useAi, setUseAi] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const inputRef = useRef<HTMLInputElement | null>(null)
 
@@ -78,27 +76,11 @@ export default function DropZone({ onInvoiceParsed, onError }: DropZoneProps) {
       return
     }
 
-    if (isPDF && useAi) {
+    if (isPDF) {
       setIsLoading(true)
       try {
         const result = await convertPdfWithLocalAI(file)
         onInvoiceParsed(result)
-      } catch (error) {
-        onError(
-          error instanceof Error ? error.message : 'Não foi possível processar o PDF.',
-        )
-      } finally {
-        setIsLoading(false)
-      }
-      return
-    }
-
-    if (isPDF) {
-      setIsLoading(true)
-      try {
-        const arrayBuffer = await file.arrayBuffer()
-        const parsed = await parsePDF(arrayBuffer)
-        onInvoiceParsed(parsed)
       } catch (error) {
         onError(
           error instanceof Error ? error.message : 'Não foi possível processar o PDF.',
@@ -151,7 +133,7 @@ export default function DropZone({ onInvoiceParsed, onError }: DropZoneProps) {
           <>
             <p className="text-lg font-semibold text-stone-800">Processando fatura…</p>
             <p className="mt-2 text-sm text-stone-500">
-              {useAi ? 'A IA local está analisando o PDF. Pode levar alguns segundos.' : 'Extraindo transações…'}
+              A IA local está analisando o PDF. Pode levar alguns segundos.
             </p>
           </>
         ) : (
@@ -168,17 +150,6 @@ export default function DropZone({ onInvoiceParsed, onError }: DropZoneProps) {
           </>
         )}
       </div>
-
-      <label className="mt-4 flex cursor-pointer items-center gap-2 text-sm text-stone-700">
-        <input
-          type="checkbox"
-          checked={useAi}
-          onChange={(e) => setUseAi(e.target.checked)}
-          className="h-4 w-4 rounded border-stone-300 accent-amber-600"
-          disabled={isLoading}
-        />
-        Usar IA local para interpretar fatura (requer Ollama rodando)
-      </label>
 
       <input
         ref={inputRef}
