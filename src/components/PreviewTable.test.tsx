@@ -2,36 +2,42 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import PreviewTable from './PreviewTable'
 import * as exportExcel from '../lib/exportExcel'
+import type { ParsedInvoice } from '../shared/invoice.types'
 
-const transactions = [
-  { date: '27/04/2026', description: 'Netflix.Com', amount: 59.9 },
-  { date: '28/04/2026', description: 'Estorno', amount: -100.5 },
-]
+const baseInvoice: ParsedInvoice = {
+  bank: 'itau',
+  invoiceDueDate: '2026-04-29',
+  invoiceTotal: 40.6,
+  transactions: [
+    {
+      date: '2026-04-27',
+      description: 'Netflix.Com',
+      amount: 59.9,
+      type: 'expense',
+      confidence: 1,
+    },
+    {
+      date: '2026-04-28',
+      description: 'Estorno',
+      amount: -100.5,
+      type: 'payment',
+      confidence: 1,
+    },
+  ],
+  warnings: [],
+  extractionMethod: 'pdf-regex',
+}
 
 describe('PreviewTable', () => {
   it('renderiza transacoes na tabela', () => {
-    render(
-      <PreviewTable
-        transactions={transactions}
-        balance={40.6}
-        fileName="fatura_2026-04-29.xlsx"
-        onReset={vi.fn()}
-      />,
-    )
+    render(<PreviewTable invoice={baseInvoice} onReset={vi.fn()} />)
 
-    expect(screen.getByText('27/04/2026 - Netflix.Com')).toBeInTheDocument()
-    expect(screen.getByText('28/04/2026 - Estorno')).toBeInTheDocument()
+    expect(screen.getByText('Netflix.Com')).toBeInTheDocument()
+    expect(screen.getByText('Estorno')).toBeInTheDocument()
   })
 
   it('aplica cor vermelha e verde nos valores', () => {
-    render(
-      <PreviewTable
-        transactions={transactions}
-        balance={40.6}
-        fileName="fatura_2026-04-29.xlsx"
-        onReset={vi.fn()}
-      />,
-    )
+    render(<PreviewTable invoice={baseInvoice} onReset={vi.fn()} />)
 
     const gasto = screen.getByText(/59,90/)
     const estorno = screen.getByText(/100,50/)
@@ -40,38 +46,40 @@ describe('PreviewTable', () => {
     expect(estorno.className).toContain('text-green-600')
   })
 
-  it('chama exportToExcel ao clicar em baixar', () => {
+  it('exibe warnings quando presentes', () => {
+    const invoice = { ...baseInvoice, warnings: ['Nenhuma transação foi identificada.'] }
+    render(<PreviewTable invoice={invoice} onReset={vi.fn()} />)
+
+    expect(screen.getByText('Nenhuma transação foi identificada.')).toBeInTheDocument()
+  })
+
+  it('chama exportInvoiceToExcel ao clicar em baixar', () => {
     const spy = vi
-      .spyOn(exportExcel, 'exportToExcel')
+      .spyOn(exportExcel, 'exportInvoiceToExcel')
       .mockImplementation(() => undefined)
 
-    render(
-      <PreviewTable
-        transactions={transactions}
-        balance={40.6}
-        fileName="fatura_2026-04-29.xlsx"
-        onReset={vi.fn()}
-      />,
-    )
+    render(<PreviewTable invoice={baseInvoice} onReset={vi.fn()} />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Baixar Excel' }))
 
-    expect(spy).toHaveBeenCalledWith(transactions, 'fatura_2026-04-29.xlsx')
+    expect(spy).toHaveBeenCalledWith(baseInvoice)
   })
 
   it('chama onReset ao importar outro arquivo', () => {
     const onReset = vi.fn()
-
-    render(
-      <PreviewTable
-        transactions={transactions}
-        balance={40.6}
-        fileName="fatura_2026-04-29.xlsx"
-        onReset={onReset}
-      />,
-    )
+    render(<PreviewTable invoice={baseInvoice} onReset={onReset} />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Importar outro arquivo' }))
     expect(onReset).toHaveBeenCalledTimes(1)
+  })
+
+  it('mostra coluna de confiança apenas para pdf-ai', () => {
+    const aiInvoice: ParsedInvoice = {
+      ...baseInvoice,
+      extractionMethod: 'pdf-ai',
+    }
+
+    render(<PreviewTable invoice={aiInvoice} onReset={vi.fn()} />)
+    expect(screen.getByText('Confiança')).toBeInTheDocument()
   })
 })

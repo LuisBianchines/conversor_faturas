@@ -1,113 +1,171 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
-import { parsePDF } from '../lib/parsePDF'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { describe, expect, it, vi, beforeEach } from 'vitest'
 import DropZone from './DropZone'
+import type { ParsedInvoice } from '../shared/invoice.types'
 
-vi.mock('../lib/parsePDF', () => ({
-  parsePDF: vi.fn(),
-}))
-
-class FileReaderMock {
-  public result: string | ArrayBuffer | null = null
-  public onload: ((this: FileReader, ev: ProgressEvent<FileReader>) => unknown) | null = null
-  public onerror: ((this: FileReader, ev: ProgressEvent<FileReader>) => unknown) | null = null
-
-  readAsText(): void {
-    this.result = `
-      <OFX>
-        <BANKTRANLIST>
-          <DTEND>20260429000000[-3:BRT]
-          <STMTTRN>
-            <DTPOSTED>20260427000000[-3:BRT]
-            <TRNAMT>-10.00
-            <MEMO>Teste</MEMO>
-          </STMTTRN>
-        </BANKTRANLIST>
-        <LEDGERBAL><BALAMT>-10.00</BALAMT></LEDGERBAL>
-      </OFX>
-    `
-
-    this.onload?.call(this as unknown as FileReader, {} as ProgressEvent<FileReader>)
-  }
-
-  readAsArrayBuffer(): void {
-    this.result = new ArrayBuffer(16)
-    this.onload?.call(this as unknown as FileReader, {} as ProgressEvent<FileReader>)
-  }
+const baseInvoice: ParsedInvoice = {
+  bank: 'unknown',
+  invoiceDueDate: null,
+  invoiceTotal: null,
+  transactions: [],
+  warnings: [],
+  extractionMethod: 'ofx',
 }
 
-describe('DropZone', () => {
-  it('renderiza texto instrucional', () => {
-    render(<DropZone onFileParsed={vi.fn()} onError={vi.fn()} />)
+vi.mock('../lib/parseOFX', () => ({
+  parseOFX: vi.fn(() => baseInvoice),
+}))
 
+vi.mock('../lib/parsePDF', () => ({
+  parsePDF: vi.fn(async () => ({
+    ...baseInvoice,
+    bank: 'itau',
+    extractionMethod: 'pdf-regex',
+  })),
+}))
+
+const mockFetch = vi.fn()
+global.fetch = mockFetch
+
+
+describe('DropZone', () => {
+  const onInvoiceParsed = vi.fn()
+  const onError = vi.fn()
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('renderiza texto instrucional', () => {
+    render(<DropZone onInvoiceParsed={onInvoiceParsed} onError={onError} />)
     expect(screen.getByText(/Arraste e solte o arquivo/i)).toBeInTheDocument()
   })
 
   it('exibe erro para extensao invalida', () => {
-    const onError = vi.fn()
-    render(<DropZone onFileParsed={vi.fn()} onError={onError} />)
+    render(<DropZone onInvoiceParsed={onInvoiceParsed} onError={onError} />)
 
     const dropArea = screen.getByRole('button')
-    const file = new File(['conteudo'], 'arquivo.csv', { type: 'text/csv' })
+    const file = new File(['content'], 'arquivo.csv', { type: 'text/csv' })
 
-    fireEvent.drop(dropArea, {
-      dataTransfer: { files: [file] },
-    })
+    fireEvent.drop(dropArea, { dataTransfer: { files: [file] } })
 
-    expect(onError).toHaveBeenCalledWith('Formato inválido. Por favor, importe um arquivo .ofx ou .pdf.')
+    expect(onError).toHaveBeenCalledWith(
+      expect.stringContaining('Formato inválido'),
+    )
   })
 
-  it('chama onFileParsed para arquivo ofx valido', async () => {
-    vi.stubGlobal('FileReader', FileReaderMock)
-
-    const onFileParsed = vi.fn()
-    const onError = vi.fn()
-
-    render(<DropZone onFileParsed={onFileParsed} onError={onError} />)
+  it('processa arquivo OFX sem chamar o backend', async () => {
+    render(<DropZone onInvoiceParsed={onInvoiceParsed} onError={onError} />)
 
     const dropArea = screen.getByRole('button')
-    const file = new File(['conteudo'], 'fatura.ofx', { type: 'application/octet-stream' })
+    const file = new File(['ofx content'], 'fatura.ofx', { type: 'text/plain' })
 
-    fireEvent.drop(dropArea, {
-      dataTransfer: { files: [file] },
-    })
+    fireEvent.drop(dropArea, { dataTransfer: { files: [file] } })
 
     await waitFor(() => {
-      expect(onFileParsed).toHaveBeenCalledTimes(1)
+      expect(onInvoiceParsed).toHaveBeenCalled()
+      expect(mockFetch).not.toHaveBeenCalled()
     })
-
-    expect(onError).toHaveBeenCalledWith(null)
-    vi.unstubAllGlobals()
   })
 
-  it('aceita arquivo pdf e usa parsePDF', async () => {
-    vi.stubGlobal('FileReader', FileReaderMock)
-
-    const parsePDFMock = vi.mocked(parsePDF)
-    parsePDFMock.mockResolvedValueOnce({
-      transactions: [{ date: '01/04/2026', description: 'Compra', amount: 10 }],
-      balance: 10,
-      fileName: 'fatura_2026-04-30.xlsx',
-    })
-
-    const onFileParsed = vi.fn()
-    const onError = vi.fn()
-
-    render(<DropZone onFileParsed={onFileParsed} onError={onError} />)
+  it('processa PDF sem IA via parsePDF local', async () => {
+    render(<DropZone onInvoiceParsed={onInvoiceParsed} onError={onError} />)
 
     const dropArea = screen.getByRole('button')
-    const file = new File(['conteudo'], 'fatura.pdf', { type: 'application/pdf' })
+    const file = new File(['pdf content'], 'fatura.pdf', { type: 'application/pdf' })
 
-    fireEvent.drop(dropArea, {
-      dataTransfer: { files: [file] },
-    })
+    fireEvent.drop(dropArea, { dataTransfer: { files: [file] } })
 
     await waitFor(() => {
-      expect(parsePDFMock).toHaveBeenCalledTimes(1)
-      expect(onFileParsed).toHaveBeenCalledTimes(1)
+      expect(onInvoiceParsed).toHaveBeenCalled()
+      expect(mockFetch).not.toHaveBeenCalled()
+    })
+  })
+
+  it('chama /api/convert quando PDF e IA estão ativos', async () => {
+    const mockInvoice: ParsedInvoice = {
+      ...baseInvoice,
+      bank: 'itau',
+      invoiceDueDate: '2026-06-10',
+      invoiceTotal: 200,
+      extractionMethod: 'pdf-ai',
+    }
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ success: true, data: mockInvoice }),
     })
 
-    expect(onError).toHaveBeenCalledWith(null)
-    vi.unstubAllGlobals()
+    render(<DropZone onInvoiceParsed={onInvoiceParsed} onError={onError} />)
+
+    const checkbox = screen.getByRole('checkbox')
+    fireEvent.click(checkbox)
+
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement
+    const file = new File(['pdf'], 'fatura.pdf', { type: 'application/pdf' })
+
+    Object.defineProperty(input, 'files', { value: [file], configurable: true })
+    fireEvent.change(input)
+
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledWith(
+        'http://localhost:3001/api/convert',
+        expect.objectContaining({ method: 'POST' }),
+      )
+      expect(onInvoiceParsed).toHaveBeenCalledWith(mockInvoice)
+    })
+  })
+
+  it('exibe erro amigável quando backend não está rodando', async () => {
+    mockFetch.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+
+    render(<DropZone onInvoiceParsed={onInvoiceParsed} onError={onError} />)
+
+    const checkbox = screen.getByRole('checkbox')
+    fireEvent.click(checkbox)
+
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement
+    const file = new File(['pdf'], 'fatura.pdf', { type: 'application/pdf' })
+
+    Object.defineProperty(input, 'files', { value: [file], configurable: true })
+    fireEvent.change(input)
+
+    await waitFor(() => {
+      expect(onError).toHaveBeenCalledWith(
+        expect.stringContaining('Backend local não está rodando'),
+      )
+    })
+  })
+
+  it('exibe warnings retornados pela API', async () => {
+    const mockInvoice: ParsedInvoice = {
+      ...baseInvoice,
+      extractionMethod: 'pdf-ai',
+      warnings: ['Baixa confiança na transação: Padaria'],
+    }
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ success: true, data: mockInvoice }),
+    })
+
+    render(<DropZone onInvoiceParsed={onInvoiceParsed} onError={onError} />)
+
+    const checkbox = screen.getByRole('checkbox')
+    fireEvent.click(checkbox)
+
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement
+    const file = new File(['pdf'], 'fatura.pdf', { type: 'application/pdf' })
+
+    Object.defineProperty(input, 'files', { value: [file], configurable: true })
+    fireEvent.change(input)
+
+    await waitFor(() => {
+      expect(onInvoiceParsed).toHaveBeenCalledWith(
+        expect.objectContaining({
+          warnings: expect.arrayContaining(['Baixa confiança na transação: Padaria']),
+        }),
+      )
+    })
   })
 })

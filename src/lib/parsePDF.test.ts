@@ -39,10 +39,14 @@ describe('parsePDF', () => {
   })
 
   it('detecta mercado pago', () => {
-    expect(detectBank(['Resumo Mercado Pago'])).toBe('mercadopago')
+    expect(detectBank(['Resumo Mercado Pago'])).toBe('mercado_pago')
   })
 
-  it('lança erro para banco não reconhecido', async () => {
+  it('retorna unknown para banco não reconhecido', () => {
+    expect(detectBank(['Documento genérico sem banco'])).toBe('unknown')
+  })
+
+  it('lança erro para banco não reconhecido no parsePDF', async () => {
     mockPdfLines(['Documento genérico sem banco'])
 
     await expect(parsePDF(new ArrayBuffer(8))).rejects.toThrow(

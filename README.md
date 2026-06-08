@@ -1,73 +1,62 @@
-# React + TypeScript + Vite
+# Conversor de Faturas
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Utilitário pessoal para converter faturas de cartão de crédito (OFX e PDF) em planilha Excel.
 
-Currently, two official plugins are available:
+Processa arquivos localmente — nenhum dado é enviado para servidores externos.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Pré-requisitos
 
-## React Compiler
+- Node.js 18+
+- [Ollama](https://ollama.com) instalado (necessário apenas para o modo IA)
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Instalação
 
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm install
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## Rodando
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+```bash
+npm run dev
+```
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+Isso sobe dois processos simultaneamente:
+
+- **Frontend:** http://localhost:5173
+- **Backend local:** http://localhost:3001
+
+## Modo IA local (opcional)
+
+Para interpretar PDFs com IA, instale o Ollama e baixe um modelo:
+
+```bash
+ollama pull qwen2.5:7b
+```
+
+Com o Ollama rodando, marque a opção **"Usar IA local"** na interface antes de enviar o PDF.
+
+Modelos alternativos compatíveis: `llama3.1:8b`, `mistral:7b`.
+
+## Formatos suportados
+
+| Formato | Modo disponível |
+|---------|----------------|
+| `.ofx`  | Parser local no browser |
+| `.pdf`  | Parser por banco (Itaú, BB, Mercado Pago) ou IA local |
+
+## Configuração avançada
+
+Copie `.env.example` para `.env` e ajuste as variáveis conforme necessário:
+
+```bash
+cp .env.example .env
+```
+
+## Outros comandos
+
+```bash
+npm run test        # testes unitários
+npm run typecheck   # verificação de tipos (frontend)
+npm run build       # build de produção
 ```

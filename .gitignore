@@ -12,6 +12,17 @@ dist
 dist-ssr
 *.local
 
+# Sensitive uploads and exports
+uploads/
+tmp/
+debug/
+debug-output/
+*.pdf
+*.ofx
+*.xlsx
+.env
+.env.local
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

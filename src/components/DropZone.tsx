@@ -1,86 +1,124 @@
 import { useRef, useState } from 'react'
 import { parseOFX } from '../lib/parseOFX'
 import { parsePDF } from '../lib/parsePDF'
-import type { OFXParseResult } from '../lib/types'
+import type { ParsedInvoice } from '../shared/invoice.types'
+import type { ConvertApiResponse } from '../shared/api.types'
 
 interface DropZoneProps {
-  onFileParsed: (result: OFXParseResult) => void
+  onInvoiceParsed: (invoice: ParsedInvoice) => void
   onError: (message: string | null) => void
 }
 
 function isSupportedFile(file: File): boolean {
-  const fileName = file.name.toLowerCase()
-  return fileName.endsWith('.ofx') || fileName.endsWith('.pdf')
+  const name = file.name.toLowerCase()
+  return name.endsWith('.ofx') || name.endsWith('.pdf')
 }
 
-export default function DropZone({ onFileParsed, onError }: DropZoneProps) {
+async function convertPdfWithLocalAI(file: File): Promise<ParsedInvoice> {
+  const formData = new FormData()
+  formData.append('file', file)
+  formData.append('useAi', 'true')
+
+  let response: Response
+
+  try {
+    response = await fetch('http://localhost:3001/api/convert', {
+      method: 'POST',
+      body: formData,
+    })
+  } catch {
+    throw new Error(
+      'Backend local não está rodando. Execute npm run dev e tente novamente.',
+    )
+  }
+
+  const payload = (await response.json()) as ConvertApiResponse
+
+  if (!payload.success) {
+    if (payload.error.code === 'OLLAMA_UNAVAILABLE') {
+      throw new Error(
+        `Ollama não está respondendo. Verifique se o Ollama está instalado e se o modelo foi baixado.\n\nComando: ollama pull qwen2.5:7b`,
+      )
+    }
+    throw new Error(payload.error.message)
+  }
+
+  return payload.data
+}
+
+export default function DropZone({ onInvoiceParsed, onError }: DropZoneProps) {
   const [isDragging, setIsDragging] = useState(false)
   const [selectedFileName, setSelectedFileName] = useState<string>('')
+  const [useAi, setUseAi] = useState(false)
+  const [isLoading, setIsLoading] = useState(false)
   const inputRef = useRef<HTMLInputElement | null>(null)
 
-  const processFile = (file: File): void => {
+  const processFile = async (file: File): Promise<void> => {
     if (!isSupportedFile(file)) {
       onError('Formato inválido. Por favor, importe um arquivo .ofx ou .pdf.')
       return
     }
 
     const isOFX = file.name.toLowerCase().endsWith('.ofx')
-    const reader = new FileReader()
+    const isPDF = file.name.toLowerCase().endsWith('.pdf')
 
-    reader.onload = async () => {
-      try {
-        if (isOFX) {
-          const content = typeof reader.result === 'string' ? reader.result : ''
-          const parsed = parseOFX(content)
-
-          setSelectedFileName(file.name)
-          onError(null)
-          onFileParsed(parsed)
-          return
-        }
-
-        if (!(reader.result instanceof ArrayBuffer)) {
-          throw new Error('Não foi possível ler o arquivo. Tente novamente.')
-        }
-
-        const parsed = await parsePDF(reader.result)
-        setSelectedFileName(file.name)
-        onError(null)
-        onFileParsed(parsed)
-      } catch (error) {
-        onError(
-          error instanceof Error ? error.message : 'Não foi possível processar o arquivo. Tente novamente.',
-        )
-      }
-    }
-
-    reader.onerror = () => {
-      onError('Não foi possível ler o arquivo. Tente novamente.')
-    }
+    setSelectedFileName(file.name)
+    onError(null)
 
     if (isOFX) {
-      reader.readAsText(file)
+      try {
+        const content = await file.text()
+        const parsed = parseOFX(content)
+        onInvoiceParsed(parsed)
+      } catch (error) {
+        onError(
+          error instanceof Error ? error.message : 'Não foi possível processar o arquivo OFX.',
+        )
+      }
       return
     }
 
-    reader.readAsArrayBuffer(file)
+    if (isPDF && useAi) {
+      setIsLoading(true)
+      try {
+        const result = await convertPdfWithLocalAI(file)
+        onInvoiceParsed(result)
+      } catch (error) {
+        onError(
+          error instanceof Error ? error.message : 'Não foi possível processar o PDF.',
+        )
+      } finally {
+        setIsLoading(false)
+      }
+      return
+    }
+
+    if (isPDF) {
+      setIsLoading(true)
+      try {
+        const arrayBuffer = await file.arrayBuffer()
+        const parsed = await parsePDF(arrayBuffer)
+        onInvoiceParsed(parsed)
+      } catch (error) {
+        onError(
+          error instanceof Error ? error.message : 'Não foi possível processar o PDF.',
+        )
+      } finally {
+        setIsLoading(false)
+      }
+    }
   }
 
   const handleDrop = (event: React.DragEvent<HTMLDivElement>): void => {
     event.preventDefault()
     setIsDragging(false)
-
     const file = event.dataTransfer.files[0]
-    if (file) {
-      processFile(file)
-    }
+    if (file) void processFile(file)
   }
 
   const handleInputChange = (event: React.ChangeEvent<HTMLInputElement>): void => {
     const file = event.target.files?.[0]
-    if (file) {
-      processFile(file)
-    }
+    if (file) void processFile(file)
   }
 
   return (
@@ -88,7 +126,7 @@ export default function DropZone({ onFileParsed, onError }: DropZoneProps) {
       <div
         role="button"
         tabIndex={0}
-        onClick={() => inputRef.current?.click()}
+        onClick={() => !isLoading && inputRef.current?.click()}
         onDragOver={(event) => {
           event.preventDefault()
           setIsDragging(true)
@@ -96,27 +134,51 @@ export default function DropZone({ onFileParsed, onError }: DropZoneProps) {
         onDragLeave={() => setIsDragging(false)}
         onDrop={handleDrop}
         onKeyDown={(event) => {
-          if (event.key === 'Enter' || event.key === ' ') {
+          if ((event.key === 'Enter' || event.key === ' ') && !isLoading) {
             event.preventDefault()
             inputRef.current?.click()
           }
         }}
         className={`cursor-pointer rounded-xl border-2 border-dashed p-10 text-center transition ${
-          isDragging
-            ? 'border-amber-600 bg-amber-50'
-            : 'border-stone-300 bg-stone-50 hover:border-stone-400'
+          isLoading
+            ? 'border-stone-300 bg-stone-50 opacity-70'
+            : isDragging
+              ? 'border-amber-600 bg-amber-50'
+              : 'border-stone-300 bg-stone-50 hover:border-stone-400'
         }`}
       >
-        <p className="text-lg font-semibold text-stone-800">Importe sua fatura OFX ou PDF</p>
-        <p className="mt-2 text-sm text-stone-600">
-          Arraste e solte o arquivo .ofx ou .pdf aqui ou clique para selecionar.
-        </p>
-        {selectedFileName ? (
-          <p className="mt-4 text-sm font-medium text-stone-700">
-            Arquivo selecionado: {selectedFileName}
-          </p>
-        ) : null}
+        {isLoading ? (
+          <>
+            <p className="text-lg font-semibold text-stone-800">Processando fatura…</p>
+            <p className="mt-2 text-sm text-stone-500">
+              {useAi ? 'A IA local está analisando o PDF. Pode levar alguns segundos.' : 'Extraindo transações…'}
+            </p>
+          </>
+        ) : (
+          <>
+            <p className="text-lg font-semibold text-stone-800">Importe sua fatura OFX ou PDF</p>
+            <p className="mt-2 text-sm text-stone-600">
+              Arraste e solte o arquivo aqui ou clique para selecionar.
+            </p>
+            {selectedFileName ? (
+              <p className="mt-4 text-sm font-medium text-stone-700">
+                Arquivo: {selectedFileName}
+              </p>
+            ) : null}
+          </>
+        )}
       </div>
+
+      <label className="mt-4 flex cursor-pointer items-center gap-2 text-sm text-stone-700">
+        <input
+          type="checkbox"
+          checked={useAi}
+          onChange={(e) => setUseAi(e.target.checked)}
+          className="h-4 w-4 rounded border-stone-300 accent-amber-600"
+          disabled={isLoading}
+        />
+        Usar IA local para interpretar fatura (requer Ollama rodando)
+      </label>
 
       <input
         ref={inputRef}

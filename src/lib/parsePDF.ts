@@ -3,7 +3,8 @@ import type { TextItem } from 'pdfjs-dist/types/src/display/api'
 import { parseBBPDF } from './parsers/parseBBPDF'
 import { parseItauPDF } from './parsers/parseItauPDF'
 import { parseMercadoPagoPDF } from './parsers/parseMercadoPagoPDF'
-import type { OFXParseResult, SupportedBank } from './types'
+import type { OFXParseResult } from './types'
+import type { ParsedInvoice, SupportedBank } from '../shared/invoice.types'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   'pdfjs-dist/build/pdf.worker.min.mjs',
@@ -60,7 +61,7 @@ export async function extractLines(arrayBuffer: ArrayBuffer): Promise<string[]> 
   return allLines
 }
 
-export function detectBank(lines: string[]): Exclude<SupportedBank, 'ofx'> | null {
+export function detectBank(lines: string[]): SupportedBank {
   const fullText = lines.join(' ').toLowerCase()
 
   if (fullText.includes('itaú') || fullText.includes('itau unibanco')) {
@@ -72,26 +73,61 @@ export function detectBank(lines: string[]): Exclude<SupportedBank, 'ofx'> | nul
   }
 
   if (fullText.includes('mercado pago') || fullText.includes('mercadopago')) {
-    return 'mercadopago'
+    return 'mercado_pago'
   }
 
-  return null
+  if (fullText.includes('nubank')) {
+    return 'nubank'
+  }
+
+  return 'unknown'
 }
 
-export async function parsePDF(arrayBuffer: ArrayBuffer): Promise<OFXParseResult> {
+function ddmmyyyyToISO(date: string): string | null {
+  const parts = date.split('/')
+  if (parts.length !== 3) return null
+  const [day, month, year] = parts
+  if (!day || !month || !year) return null
+  return `${year}-${month}-${day}`
+}
+
+function ofxResultToParsedInvoice(
+  result: OFXParseResult,
+  bank: SupportedBank,
+): ParsedInvoice {
+  const fileNameDateMatch = result.fileName.match(/(\d{4}-\d{2}-\d{2})/)
+  const invoiceDueDate = fileNameDateMatch ? fileNameDateMatch[1] : null
+
+  return {
+    bank,
+    invoiceDueDate,
+    invoiceTotal: result.balance > 0 ? result.balance : null,
+    transactions: result.transactions.map((t) => ({
+      date: ddmmyyyyToISO(t.date),
+      description: t.description,
+      amount: t.amount,
+      type: t.amount < 0 ? ('payment' as const) : ('expense' as const),
+      confidence: 0.9,
+    })),
+    warnings: [],
+    extractionMethod: 'pdf-regex',
+  }
+}
+
+export async function parsePDF(arrayBuffer: ArrayBuffer): Promise<ParsedInvoice> {
   const lines = await extractLines(arrayBuffer)
   const bank = detectBank(lines)
 
   if (bank === 'itau') {
-    return parseItauPDF(lines)
+    return ofxResultToParsedInvoice(parseItauPDF(lines), bank)
   }
 
   if (bank === 'bb') {
-    return parseBBPDF(lines)
+    return ofxResultToParsedInvoice(parseBBPDF(lines), bank)
   }
 
-  if (bank === 'mercadopago') {
-    return parseMercadoPagoPDF(lines)
+  if (bank === 'mercado_pago') {
+    return ofxResultToParsedInvoice(parseMercadoPagoPDF(lines), bank)
   }
 
   throw new Error('Banco não reconhecido. PDFs suportados: Itaú, Banco do Brasil e Mercado Pago.')

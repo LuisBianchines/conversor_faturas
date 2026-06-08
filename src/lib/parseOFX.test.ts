@@ -34,14 +34,17 @@ describe('parseOFX', () => {
     const result = parseOFX(sampleOFX)
 
     expect(result.transactions).toHaveLength(2)
-    expect(result.transactions[0]).toEqual({
-      date: '27/04/2026',
+    expect(result.transactions[0]).toMatchObject({
+      date: '2026-04-27',
       description: 'Netflix.Com',
       amount: 59.9,
+      type: 'expense',
     })
     expect(result.transactions[1].amount).toBe(-100.5)
-    expect(result.balance).toBe(-3467.45)
-    expect(result.fileName).toBe('fatura_2026-04-29.xlsx')
+    expect(result.transactions[1].type).toBe('payment')
+    expect(result.invoiceTotal).toBe(-3467.45)
+    expect(result.invoiceDueDate).toBe('2026-04-29')
+    expect(result.extractionMethod).toBe('ofx')
   })
 
   it('retorna lista vazia quando nao ha STMTTRN', () => {
