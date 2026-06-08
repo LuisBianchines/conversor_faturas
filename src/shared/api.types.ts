@@ -15,3 +15,9 @@ export interface ApiErrorResponse {
 }
 
 export type ConvertApiResponse = ConvertResponse | ApiErrorResponse;
+
+export type ConvertStreamEvent =
+  | { event: 'step'; data: { message: string } }
+  | { event: 'token'; data: { text: string } }
+  | { event: 'result'; data: { invoice: ParsedInvoice } }
+  | { event: 'error'; data: { code: string; message: string } };

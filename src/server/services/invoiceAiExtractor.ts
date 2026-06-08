@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { generateJsonWithOllama } from './ollamaClient.js';
+import { generateJsonWithOllama, streamTextWithOllama } from './ollamaClient.js';
 import { ApiError } from '../utils/errors.js';
 import type { ParsedInvoice } from '../../shared/invoice.types.js';
 
@@ -66,22 +66,7 @@ const aiInvoiceSchema = z.object({
   warnings: z.array(z.string()).default([]),
 });
 
-export async function extractInvoiceWithAi(text: string): Promise<ParsedInvoice> {
-  const prompt = buildInvoiceExtractionPrompt(text);
-  const raw = await generateJsonWithOllama<unknown>({ prompt });
-
-  const result = aiInvoiceSchema.safeParse(raw);
-
-  if (!result.success) {
-    throw new ApiError(
-      'AI_VALIDATION_FAILED',
-      'A resposta da IA não passou na validação. Tente novamente.',
-      result.error.issues,
-    );
-  }
-
-  const parsed = result.data;
-
+function mapAiResult(parsed: z.infer<typeof aiInvoiceSchema>): ParsedInvoice {
   return {
     bank: parsed.bank,
     cardLastDigits: parsed.cardLastDigits ?? null,
@@ -100,4 +85,56 @@ export async function extractInvoiceWithAi(text: string): Promise<ParsedInvoice>
     warnings: parsed.warnings,
     extractionMethod: 'pdf-ai',
   };
+}
+
+export async function extractInvoiceWithAiStream(
+  text: string,
+  onToken: (token: string) => void,
+): Promise<ParsedInvoice> {
+  const prompt = buildInvoiceExtractionPrompt(text);
+  let accumulated = '';
+
+  for await (const token of streamTextWithOllama({ prompt })) {
+    accumulated += token;
+    onToken(token);
+  }
+
+  let raw: unknown;
+  try {
+    raw = JSON.parse(accumulated);
+  } catch {
+    throw new ApiError(
+      'OLLAMA_INVALID_JSON',
+      'O modelo retornou JSON inválido. Tente novamente.',
+      accumulated,
+    );
+  }
+
+  const result = aiInvoiceSchema.safeParse(raw);
+  if (!result.success) {
+    throw new ApiError(
+      'AI_VALIDATION_FAILED',
+      'A resposta da IA não passou na validação. Tente novamente.',
+      result.error.issues,
+    );
+  }
+
+  return mapAiResult(result.data);
+}
+
+export async function extractInvoiceWithAi(text: string): Promise<ParsedInvoice> {
+  const prompt = buildInvoiceExtractionPrompt(text);
+  const raw = await generateJsonWithOllama<unknown>({ prompt });
+
+  const result = aiInvoiceSchema.safeParse(raw);
+
+  if (!result.success) {
+    throw new ApiError(
+      'AI_VALIDATION_FAILED',
+      'A resposta da IA não passou na validação. Tente novamente.',
+      result.error.issues,
+    );
+  }
+
+  return mapAiResult(result.data);
 }
